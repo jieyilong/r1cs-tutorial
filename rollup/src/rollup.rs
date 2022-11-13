@@ -2,6 +2,9 @@ use crate::account::AccountInformationVar;
 use crate::ledger::*;
 use crate::transaction::TransactionVar;
 use crate::ConstraintF;
+use regex::Regex;
+use ark_ec::PairingEngine;
+use ark_ec::bn::Bn;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_simple_payments::{
@@ -260,6 +263,8 @@ impl<const NUM_TX: usize> ConstraintSynthesizer<ConstraintF> for Rollup<NUM_TX> 
 #[cfg(test)]
 mod test {
     use super::*;
+    use ark_gm17::VerifyingKey;
+    // use ark_ff::Zero;
     use ark_relations::r1cs::{
         ConstraintLayer, ConstraintSynthesizer, ConstraintSystem, TracingMode::OnlyConstraints,
     };
@@ -448,9 +453,53 @@ mod test {
         rollup
     }
 
+    fn extract_fp256_coordinate_value(fp_str: &String) -> String {
+        let mut coord_char_str: String = "0x".to_owned();
+        let coord_char_vec: Vec<char> = fp_str.to_lowercase().chars().skip(8).take(64).collect();
+        let value_str: String = coord_char_vec.iter().collect();
+        coord_char_str.push_str(&value_str);
+        return coord_char_str;
+    }
+
+    fn serialize_verification_key(vk: &ark_groth16::VerifyingKey<Bn<ark_bn254::Parameters>>) -> String {
+        let mut vk_json_str = String::from(BN254_VK_JSON_TEMPLATE);
+
+        let regex_vec = vec![
+            r#"(<%vk_alpha_x%>)"#, r#"(<%vk_alpha_y%>)"#, 
+            r#"(<%vk_beta_x_c0%>)"#, r#"(<%vk_beta_x_c1%>)"#, r#"(<%vk_beta_y_c0%>)"#, r#"(<%vk_beta_y_c1%>)"#,
+            r#"(<%vk_gamma_x_c0%>)"#, r#"(<%vk_gamma_x_c1%>)"#, r#"(<%vk_gamma_y_c0%>)"#, r#"(<%vk_gamma_y_c1%>)"#,
+            r#"(<%vk_delta_x_c0%>)"#, r#"(<%vk_delta_x_c1%>)"#, r#"(<%vk_delta_y_c0%>)"#, r#"(<%vk_delta_y_c1%>)"#,
+            r#"(<%vk_gamma_abc_0_x%>)"#, r#"(<%vk_gamma_abc_0_y%>)"#, 
+            r#"(<%vk_gamma_abc_1_x%>)"#, r#"(<%vk_gamma_abc_1_y%>)"#, 
+            r#"(<%vk_gamma_abc_2_x%>)"#, r#"(<%vk_gamma_abc_2_y%>)"#
+        ];
+
+        let mut coordinate_vec = vec![
+            vk.alpha_g1.x.to_string(), vk.alpha_g1.y.to_string(),
+            vk.beta_g2.x.c0.to_string(), vk.beta_g2.x.c1.to_string(), vk.beta_g2.y.c0.to_string(), vk.beta_g2.y.c1.to_string(),
+            vk.gamma_g2.x.c0.to_string(), vk.gamma_g2.x.c1.to_string(), vk.gamma_g2.y.c0.to_string(), vk.gamma_g2.y.c1.to_string(),
+            vk.delta_g2.x.c0.to_string(), vk.delta_g2.x.c1.to_string(), vk.delta_g2.y.c0.to_string(), vk.delta_g2.y.c1.to_string(),
+        ];
+
+        // FIXME: for simplicity, here we assume vk.gamma_abc_g1 always has three elements, verify if this is indeed the case 
+        for point in vk.gamma_abc_g1.iter() {
+            coordinate_vec.push(point.x.to_string());
+            coordinate_vec.push(point.y.to_string());
+        }
+
+        for i in 0..regex_vec.len() {
+            let regex = Regex::new(regex_vec[i]).unwrap();
+            let coord = &coordinate_vec[i];
+            let coord_value_str = extract_fp256_coordinate_value(&coord);
+            vk_json_str = regex.replace(vk_json_str.as_str(), coord_value_str.as_str()).into_owned();
+        }
+
+        return vk_json_str;
+    }
+
     #[test]
     fn snark_verification() {
-        use ark_bls12_381::Bls12_381;
+        use ark_bn254::Bn254;
         use ark_groth16::Groth16;
         use ark_snark::SNARK;
         // Use a circuit just to generate the circuit
@@ -458,7 +507,9 @@ mod test {
 
         let mut rng = ark_std::test_rng();
         let (pk, vk) =
-            Groth16::<Bls12_381>::circuit_specific_setup(circuit_defining_cs, &mut rng).unwrap();
+            Groth16::<Bn254>::circuit_specific_setup(circuit_defining_cs, &mut rng).unwrap();
+
+        println!("verification_key.json: {}", serialize_verification_key(&vk));
 
         // Use the same circuit but with different inputs to verify against
         // This test checks that the SNARK passes on the provided input
@@ -467,6 +518,18 @@ mod test {
             circuit_to_verify_against.initial_root.unwrap(),
             circuit_to_verify_against.final_root.unwrap(),
         ];
+
+        // println!("vk.alpha_g1: {}", vk.alpha_g1.to_string());
+        // println!("vk.beta_g2:  {}", vk.beta_g2.to_string());
+        // println!("vk.gamma_g2: {}", vk.gamma_g2.to_string());
+        // println!("vk.delta_g2: {}", vk.delta_g2.to_string());
+        // println!("vk.gamma_abc_g1: [");
+        // for point in vk.gamma_abc_g1.iter() {
+        //     println!("{}", point.to_string());
+        // }
+        // println!("]");
+        // println!(" public_input[0]: {}", public_input[0].to_string());
+        // println!(" public_input[1]: {}", public_input[1].to_string());
 
         let proof = Groth16::prove(&pk, circuit_to_verify_against, &mut rng).unwrap();
         let valid_proof = Groth16::verify(&vk, &public_input, &proof).unwrap();
@@ -487,3 +550,86 @@ mod test {
     }
 }
 // Optimization ideas: remove `pre_tx_roots` entirely.
+
+const BN254_VK_JSON_TEMPLATE: &str = r#"
+{
+    "scheme": "g16",
+    "curve": "bn128",
+    "alpha": [
+      "<%vk_alpha_x%>",
+      "<%vk_alpha_y%>"
+    ],
+    "beta": [
+      [
+        "<%vk_beta_x_c0%>",
+        "<%vk_beta_x_c1%>"
+      ],
+      [
+        "<%vk_beta_y_c0%>",
+        "<%vk_beta_y_c1%>"
+      ]
+    ],
+    "gamma": [
+      [
+        "<%vk_gamma_x_c0%>",
+        "<%vk_gamma_x_c1%>"
+      ],
+      [
+        "<%vk_gamma_y_c0%>",
+        "<%vk_gamma_y_c1%>"
+      ]
+    ],
+    "delta": [
+      [
+        "<%vk_delta_x_c0%>",
+        "<%vk_delta_x_c1%>"
+      ],
+      [
+        "<%vk_delta_y_c0%>",
+        "<%vk_delta_y_c1%>"
+      ]
+    ],
+    "gamma_abc": [
+      [
+        "<%vk_gamma_abc_0_x%>",
+        "<%vk_gamma_abc_0_y%>"
+      ],
+      [
+        "<%vk_gamma_abc_1_x%>",
+        "<%vk_gamma_abc_1_y%>"
+      ],
+      [
+        "<%vk_gamma_abc_2_x%>",
+        "<%vk_gamma_abc_2_y%>"
+      ]
+    ]
+  }
+"#;
+
+const BN254_PROOF_JSON_TEMPLATE: &str = r#"
+{
+    "scheme": "g16",
+    "curve": "bn128",
+    "proof": {
+      "a": [
+        "<%proof_a_x%>",
+        "<%proof_a_y%>"
+      ],
+      "b": [
+        [
+          "<%proof_b_x_c0%>",
+          "<%proof_b_x_c1%>"
+        ],
+        [
+          "<%proof_b_y_c0%>",
+          "<%proof_b_y_c1%>"
+        ]
+      ],
+      "c": [
+        "<%proof_c_x%>",
+        "<%proof_c_y%>"
+      ]
+    },
+    "inputs": []
+  }
+"#;

@@ -4,7 +4,7 @@ use crate::signature::{
     schnorr::{self, Schnorr},
     SignatureScheme,
 };
-use ark_ed_on_bls12_381::EdwardsProjective;
+use ark_ed_on_bn254::EdwardsProjective;
 use ark_std::rand::Rng;
 
 /// Transaction transferring some amount from one account to another.

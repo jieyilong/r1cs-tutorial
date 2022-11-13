@@ -1,4 +1,4 @@
-pub type ConstraintF = ark_bls12_381::Fr;
+pub type ConstraintF = ark_bn254::Fr;
 
 pub mod account;
 pub mod ledger;

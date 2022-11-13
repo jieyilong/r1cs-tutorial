@@ -51,7 +51,7 @@ mod test {
         blake2s::{constraints::ROGadget, RO},
         RandomOracle, RandomOracleGadget,
     };
-    use ark_ed_on_bls12_381::Fq as Fr;
+    use ark_ed_on_bn254::Fq as Fr;
     use ark_r1cs_std::prelude::*;
     use ark_relations::r1cs::ConstraintSystem;
 

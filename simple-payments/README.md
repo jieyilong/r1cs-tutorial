@@ -32,7 +32,7 @@ If these checks pass, the ledger decrements the sender's account balance by `tx.
 
 ### Signature scheme
 
-We use a simple custom implementation of Schnorr signatures over the prime order subgroup of the [Jubjub](https://z.cash/technology/jubjub/) curve. This curve is implemented in the [ark-ed-on-bls12-381](https://docs.rs/ark-ed-on-bls12-381/0.3.0/ark_ed_on_bls12_381/) crate. Our Schnorr signature implementation can be found in [`src/signature/schnorr/mod.rs`](./src/signature/schnorr/mod.rs).
+We use a simple custom implementation of Schnorr signatures over the prime order subgroup of the [Jubjub](https://z.cash/technology/jubjub/) curve. This curve is implemented in the [ark-ed-on-bls12-381](https://docs.rs/ark-ed-on-bls12-381/0.3.0/ark_ed_on_bn254/) crate. Our Schnorr signature implementation can be found in [`src/signature/schnorr/mod.rs`](./src/signature/schnorr/mod.rs).
 
 ### Merkle tree
 

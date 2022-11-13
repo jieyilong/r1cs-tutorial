@@ -1,6 +1,6 @@
 use crate::ledger::*;
 use crate::ConstraintF;
-use ark_ed_on_bls12_381::{constraints::EdwardsVar, EdwardsProjective};
+use ark_ed_on_bn254::{constraints::EdwardsVar, EdwardsProjective};
 use ark_r1cs_std::bits::{uint8::UInt8, ToBytesGadget};
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{Namespace, SynthesisError};
