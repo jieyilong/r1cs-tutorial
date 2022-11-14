@@ -6,7 +6,7 @@ use ark_crypto_primitives::crh::{
     pedersen, TwoToOneCRH, CRH,
 };
 use ark_crypto_primitives::merkle_tree::{self, MerkleTree, Path};
-use ark_ed_on_bls12_381::EdwardsProjective;
+use ark_ed_on_bn254::EdwardsProjective;
 use ark_std::rand::Rng;
 use std::collections::HashMap;
 

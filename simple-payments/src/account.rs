@@ -1,6 +1,6 @@
 use crate::ledger::*;
 use crate::signature::schnorr;
-use ark_ed_on_bls12_381::EdwardsProjective;
+use ark_ed_on_bn254::EdwardsProjective;
 
 /// Account public key used to verify transaction signatures.
 pub type AccountPublicKey = schnorr::PublicKey<EdwardsProjective>;
