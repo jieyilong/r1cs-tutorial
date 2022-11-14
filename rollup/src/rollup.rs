@@ -2,9 +2,12 @@ use crate::account::AccountInformationVar;
 use crate::ledger::*;
 use crate::transaction::TransactionVar;
 use crate::ConstraintF;
+use std::path::Path;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use regex::Regex;
-use ark_ec::PairingEngine;
 use ark_ec::bn::Bn;
+use ark_ff::Fp256;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_simple_payments::{
@@ -263,7 +266,6 @@ impl<const NUM_TX: usize> ConstraintSynthesizer<ConstraintF> for Rollup<NUM_TX> 
 #[cfg(test)]
 mod test {
     use super::*;
-    use ark_gm17::VerifyingKey;
     // use ark_ff::Zero;
     use ark_relations::r1cs::{
         ConstraintLayer, ConstraintSynthesizer, ConstraintSystem, TracingMode::OnlyConstraints,
@@ -461,6 +463,32 @@ mod test {
         return coord_char_str;
     }
 
+    fn print_verification_key_and_proof(
+        vk: &ark_groth16::VerifyingKey<Bn<ark_bn254::Parameters>>,
+        proof: &ark_groth16::Proof<Bn<ark_bn254::Parameters>>, 
+        public_input: &[Fp256<ark_ed_on_bn254::FqParameters>; 2]) {
+        
+        println!("vk.alpha_g1: {}", vk.alpha_g1.to_string());
+        println!("vk.beta_g2:  {}", vk.beta_g2.to_string());
+        println!("vk.gamma_g2: {}", vk.gamma_g2.to_string());
+        println!("vk.delta_g2: {}", vk.delta_g2.to_string());
+        println!("vk.gamma_abc_g1: [");
+        for point in vk.gamma_abc_g1.iter() {
+            println!("{}", point.to_string());
+        }
+        println!("]");
+        println!("");
+
+        println!("proof.a: {}", proof.a.to_string());
+        println!("proof.c: {}", proof.b.to_string());
+        println!("proof.c: {}", proof.c.to_string());
+        println!("");
+
+        println!(" public_input[0]: {}", public_input[0].to_string());
+        println!(" public_input[1]: {}", public_input[1].to_string());
+        println!("");
+    }
+
     fn serialize_verification_key(vk: &ark_groth16::VerifyingKey<Bn<ark_bn254::Parameters>>) -> String {
         let mut vk_json_str = String::from(BN254_VK_JSON_TEMPLATE);
 
@@ -497,6 +525,64 @@ mod test {
         return vk_json_str;
     }
 
+    fn serialize_proof(proof: &ark_groth16::Proof<Bn<ark_bn254::Parameters>>, public_input: &[Fp256<ark_ed_on_bn254::FqParameters>; 2]) -> String {
+        let mut proof_json_str = String::from(BN254_PROOF_JSON_TEMPLATE);
+
+        let regex_vec = vec![
+            r#"(<%proof_a_x%>)"#, r#"(<%proof_a_y%>)"#, 
+            r#"(<%proof_b_x_c0%>)"#, r#"(<%proof_b_x_c1%>)"#, r#"(<%proof_b_y_c0%>)"#, r#"(<%proof_b_y_c1%>)"#,
+            r#"(<%proof_c_x%>)"#, r#"(<%proof_c_y%>)"#,
+            r#"(<%input_0%>)"#, r#"(<%input_1%>)"#
+        ];
+
+        let coordinate_vec = vec![
+            proof.a.x.to_string(), proof.a.y.to_string(),
+            proof.b.x.c0.to_string(), proof.b.x.c1.to_string(), proof.b.y.c0.to_string(), proof.b.y.c1.to_string(), 
+            proof.c.x.to_string(), proof.c.y.to_string(),
+            public_input[0].to_string(), public_input[1].to_string()
+        ];
+
+        for i in 0..regex_vec.len() {
+            let regex = Regex::new(regex_vec[i]).unwrap();
+            let coord = &coordinate_vec[i];
+            let coord_value_str = extract_fp256_coordinate_value(&coord);
+            proof_json_str = regex.replace(proof_json_str.as_str(), coord_value_str.as_str()).into_owned();
+        }
+
+        return proof_json_str;
+    }
+    
+    fn export_json(output_path_str: &str, content: &String) -> Result<(), String> {
+        let output_path = Path::new(output_path_str);
+        let output_file = File::create(&output_path)
+            .map_err(|why| format!("Could not create {}: {}", output_path.display(), why))?;
+
+        let mut writer = BufWriter::new(output_file);
+
+        writer
+            .write_all(content.as_bytes())
+            .map_err(|_| "Failed writing output to file".to_string())?;
+
+        println!("{} exported", output_path.display());
+        Ok(())
+    }
+
+    fn export_verification_key_and_proof(
+        vk: &ark_groth16::VerifyingKey<Bn<ark_bn254::Parameters>>,
+        proof: &ark_groth16::Proof<Bn<ark_bn254::Parameters>>, 
+        public_input: &[Fp256<ark_ed_on_bn254::FqParameters>; 2]
+    ) {
+        // print_verification_key_and_proof(&vk, &proof, &public_input);
+        // println!("verification_key.json: {}", serialize_verification_key(&vk));
+        // println!("proof.json: {}", serialize_proof(&proof, &public_input));
+
+        let vk_json_str = serialize_verification_key(&vk);
+        export_json("verification.key", &vk_json_str);
+
+        let proof_json_str = serialize_proof(&proof, &public_input);
+        export_json("proof.json", &proof_json_str);
+    }
+
     #[test]
     fn snark_verification() {
         use ark_bn254::Bn254;
@@ -509,8 +595,6 @@ mod test {
         let (pk, vk) =
             Groth16::<Bn254>::circuit_specific_setup(circuit_defining_cs, &mut rng).unwrap();
 
-        println!("verification_key.json: {}", serialize_verification_key(&vk));
-
         // Use the same circuit but with different inputs to verify against
         // This test checks that the SNARK passes on the provided input
         let circuit_to_verify_against = build_two_tx_circuit();
@@ -518,22 +602,20 @@ mod test {
             circuit_to_verify_against.initial_root.unwrap(),
             circuit_to_verify_against.final_root.unwrap(),
         ];
-
-        // println!("vk.alpha_g1: {}", vk.alpha_g1.to_string());
-        // println!("vk.beta_g2:  {}", vk.beta_g2.to_string());
-        // println!("vk.gamma_g2: {}", vk.gamma_g2.to_string());
-        // println!("vk.delta_g2: {}", vk.delta_g2.to_string());
-        // println!("vk.gamma_abc_g1: [");
-        // for point in vk.gamma_abc_g1.iter() {
-        //     println!("{}", point.to_string());
-        // }
-        // println!("]");
-        // println!(" public_input[0]: {}", public_input[0].to_string());
-        // println!(" public_input[1]: {}", public_input[1].to_string());
+        
+        //
+        // Valid Proof
+        //
 
         let proof = Groth16::prove(&pk, circuit_to_verify_against, &mut rng).unwrap();
         let valid_proof = Groth16::verify(&vk, &public_input, &proof).unwrap();
         assert!(valid_proof);
+
+        export_verification_key_and_proof(&vk, &proof, &public_input);
+
+        //
+        // Invalid Proof
+        //
 
         // Use the same circuit but with different inputs to verify against
         // This test checks that the SNARK fails on the wrong input
@@ -630,6 +712,9 @@ const BN254_PROOF_JSON_TEMPLATE: &str = r#"
         "<%proof_c_y%>"
       ]
     },
-    "inputs": []
+    "inputs": [
+        "<%input_0%>",
+        "<%input_1%>"  
+    ]
   }
 "#;
